@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dictare Automată</title>
+<style>
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Fonturi inline (system stack monospace + sans) ── */
+:root {
+  --bg: #0f0f0f;
+  --surface: #1a1a1a;
+  --surface2: #242424;
+  --border: #2e2e2e;
+  --text: #e8e8e4;
+  --muted: #888880;
+  --accent: #c8f060;
+  --red: #ff4d4d;
+  --mono: ui-monospace, 'Cascadia Code', 'Fira Mono', 'Consolas', 'Courier New', monospace;
+  --sans: system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 1.5rem;
+  margin-bottom: 2.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+header p { font-size: 13px; color: var(--muted); }
+
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 1.5rem;
+  max-width: 1100px;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+}
+
+.panel-header span {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.panel-actions { display: flex; gap: 6px; }
+
+#transcript-area {
+  padding: 1.25rem 1.5rem;
+  min-height: 280px;
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--text);
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#transcript-area:empty::before {
+  content: 'Apasă REC și începe să vorbești...';
+  color: var(--muted);
+}
+
+#interim-area {
+  padding: 0 1.5rem 1rem;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--muted);
+  font-style: italic;
+  min-height: 28px;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface2);
+  flex-wrap: wrap;
+}
+
+.btn-rec {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: 4px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-rec:hover { background: var(--accent); color: #0f0f0f; }
+.btn-rec.active { background: var(--red); border-color: var(--red); color: #fff; }
+.btn-rec.active:hover { background: #cc3d3d; }
+
+.rec-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.btn-rec.active .rec-dot { animation: blink 1s infinite; }
+
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 8px 12px;
+  cursor: pointer;
+  outline: none;
+}
+
+select:focus { border-color: var(--accent); }
+
+.stats { display: flex; gap: 1.5rem; margin-left: auto; }
+
+.stat { text-align: right; }
+
+.stat-value {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1;
+}
+
+.stat-label { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+.sidebar { display: flex; flex-direction: column; gap: 1rem; }
+
+.ai-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.ai-panel-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ai-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: rgba(200,240,96,0.12);
+  color: var(--accent);
+  border: 1px solid rgba(200,240,96,0.25);
+}
+
+.ai-actions { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+
+.btn-ai {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 9px 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-ai:hover { border-color: var(--accent); background: rgba(200,240,96,0.05); }
+.btn-ai:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-ai-icon { font-size: 14px; opacity: 0.6; }
+
+.custom-area { padding: 0 12px 12px; }
+
+.custom-area input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  padding: 9px 12px;
+  outline: none;
+  margin-bottom: 6px;
+}
+
+.custom-area input:focus { border-color: var(--accent); }
+.custom-area input::placeholder { color: var(--muted); }
+
+.btn-apply {
+  width: 100%;
+  background: rgba(200,240,96,0.1);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 9px;
+  cursor: pointer;
+  letter-spacing: 0.06em;
+  transition: background 0.15s;
+}
+
+.btn-apply:hover { background: rgba(200,240,96,0.2); }
+.btn-apply:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-sm {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  letter-spacing: 0.06em;
+}
+
+.btn-sm:hover { color: var(--text); border-color: var(--muted); }
+
+.status-bar {
+  padding: 8px 16px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+
+.status-dot.listening { background: var(--red); animation: blink 1s infinite; }
+.status-dot.processing { background: var(--accent); animation: blink 0.6s infinite; }
+.status-dot.ok { background: var(--accent); }
+
+#api-key-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+#api-key-panel label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  display: block;
+  margin-bottom: 8px;
+}
+
+#api-key-panel input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 9px 12px;
+  outline: none;
+  margin-bottom: 8px;
+}
+
+#api-key-panel input:focus { border-color: var(--accent); }
+
+#api-key-panel p { font-size: 11px; color: var(--muted); line-height: 1.6; }
+#api-key-panel a { color: var(--accent); }
+
+.offline-note {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  line-height: 1.5;
+}
+
+.offline-note strong { color: var(--accent); }
+
+@media (max-width: 768px) {
+  .layout { grid-template-columns: 1fr; }
+  body { padding: 1rem; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>// Dictare automată</h1>
+  <p>Funcționează offline · Rafinare AI necesită internet</p>
+</header>
+
+<div class="layout">
+  <!-- Coloana principală -->
+  <div>
+    <div class="panel">
+      <div class="panel-header">
+        <span>Text dictat</span>
+        <div class="panel-actions">
+          <button class="btn-sm" onclick="clearText()">Șterge</button>
+          <button class="btn-sm" id="btn-copy" onclick="copyText()">Copiază</button>
+          <button class="btn-sm" onclick="saveText()">Salvează .txt</button>
+        </div>
+      </div>
+      <div id="transcript-area" contenteditable="true" spellcheck="true"></div>
+      <div id="interim-area"></div>
+      <div class="controls">
+        <button class="btn-rec" id="btn-mic" onclick="toggleListening()">
+          <span class="rec-dot"></span>
+          <span id="mic-label">REC</span>
+        </button>
+        <select id="lang-select" onchange="updateLang()">
+          <option value="ro-RO">Română</option>
+          <option value="en-US">Engleză (US)</option>
+          <option value="en-GB">Engleză (UK)</option>
+          <option value="fr-FR">Franceză</option>
+          <option value="de-DE">Germană</option>
+          <option value="it-IT">Italiană</option>
+          <option value="es-ES">Spaniolă</option>
+        </select>
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-value" id="word-count">0</div>
+            <div class="stat-label">cuvinte</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="char-count">0</div>
+            <div class="stat-label">caractere</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="session-time">0:00</div>
+            <div class="stat-label">sesiune</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="status-bar" style="margin-top:10px;">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-msg">Gata de dictare. Apasă REC pentru a începe.</span>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div id="api-key-panel">
+      <label>Cheie API Anthropic</label>
+      <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off" />
+      <p>
+        Doar pentru rafinare AI (necesită internet).<br>
+        Obții cheia de pe <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>.
+        Cheia nu este salvată nicăieri.
+      </p>
+    </div>
+
+    <div class="ai-panel">
+      <div class="ai-panel-header">
+        <span>Rafinare AI</span>
+        <span class="ai-badge">necesită internet</span>
+      </div>
+      <div class="ai-actions">
+        <button class="btn-ai" onclick="refineText('Corectează toate greșelile gramaticale și ortografice, păstrând sensul original')">
+          <span class="btn-ai-icon">✦</span> Corectare gramaticală
+        </button>
+        <button class="btn-ai" onclick="refineText('Adaugă punctuație corectă și împarte în paragrafe logice')">
+          <span class="btn-ai-icon">✦</span> Punctuație și paragrafe
+        </button>
+        <button class="btn-ai" onclick="refineText('Rescrie mai formal și profesionist, fără a schimba conținutul')">
+          <span class="btn-ai-icon">✦</span> Ton formal
+        </button>
+        <button class="btn-ai" onclick="refineText('Rescrie mai concis, eliminând repetițiile și cuvintele de umplutură')">
+          <span class="btn-ai-icon">✦</span> Condensează textul
+        </button>
+        <button class="btn-ai" onclick="refineText('Structurează ca email profesional cu subiect, corp și semnătură')">
+          <span class="btn-ai-icon">✦</span> Formatează ca email
+        </button>
+        <button class="btn-ai" onclick="refineText('Structurează ca listă cu puncte clare și numerotate')">
+          <span class="btn-ai-icon">✦</span> Formatează ca listă
+        </button>
+      </div>
+      <div class="custom-area">
+        <input type="text" id="custom-instruction" placeholder="Instrucțiune personalizată..." />
+        <button class="btn-apply" id="btn-apply" onclick="refineCustom()">→ APLICĂ</button>
+      </div>
+      <div class="offline-note">
+        <strong>Offline:</strong> dictarea vocală funcționează fără internet.<br>
+        Rafinarea AI necesită conexiune pentru a contacta Anthropic.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────
+let recognition = null;
+let isListening = false;
+let sessionTimer = null;
+let sessionSeconds = 0;
+let finalText = '';
+
+// ── Status ─────────────────────────────────────────────
+function setStatus(msg, type) {
+  document.getElementById('status-msg').textContent = msg;
+  const dot = document.getElementById('status-dot');
+  dot.className = 'status-dot' + (type ? ' ' + type : '');
+}
+
+// ── Speech Recognition ─────────────────────────────────
+function initRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    setStatus('Browser incompatibil. Folosește Chrome sau Edge.');
+    return null;
+  }
+  const r = new SR();
+  r.continuous = true;
+  r.interimResults = true;
+  r.lang = document.getElementById('lang-select').value;
+
+  r.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) {
+        finalText += t + ' ';
+        document.getElementById('transcript-area').innerText = finalText;
+        updateWordCount();
+      } else {
+        interim += t;
+      }
+    }
+    document.getElementById('interim-area').textContent = interim;
+  };
+
+  r.onerror = (e) => {
+    if (e.error === 'not-allowed') {
+      setStatus('Acces microfon refuzat. Permite accesul în setările browserului.');
+      stopListening();
+    } else if (e.error === 'no-speech') {
+      setStatus('Nu am auzit nimic. Continuă să vorbești...', 'listening');
+    }
+  };
+
+  r.onend = () => { if (isListening) r.start(); };
+  return r;
+}
+
+function toggleListening() {
+  isListening ? stopListening() : startListening();
+}
+
+function startListening() {
+  recognition = initRecognition();
+  if (!recognition) return;
+  recognition.start();
+  isListening = true;
+  document.getElementById('btn-mic').classList.add('active');
+  document.getElementById('mic-label').textContent = 'STOP';
+  setStatus('Ascultă... vorbește acum.', 'listening');
+  sessionTimer = setInterval(() => {
+    sessionSeconds++;
+    const m = Math.floor(sessionSeconds / 60);
+    const s = sessionSeconds % 60;
+    document.getElementById('session-time').textContent = m + ':' + String(s).padStart(2, '0');
+  }, 1000);
+}
+
+function stopListening() {
+  if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
+  isListening = false;
+  clearInterval(sessionTimer);
+  document.getElementById('btn-mic').classList.remove('active');
+  document.getElementById('mic-label').textContent = 'REC';
+  document.getElementById('interim-area').textContent = '';
+  setStatus('Dictare oprită. Textul tău e gata de editat.', 'ok');
+}
+
+function updateLang() {
+  if (isListening) { stopListening(); startListening(); }
+}
+
+// ── Text utilities ─────────────────────────────────────
+function updateWordCount() {
+  const t = document.getElementById('transcript-area').innerText.trim();
+  document.getElementById('word-count').textContent = t ? t.split(/\s+/).length : 0;
+  // caractere inclusiv spații (pauze între cuvinte)
+  document.getElementById('char-count').textContent = t.length;
+}
+
+function clearText() {
+  finalText = '';
+  document.getElementById('transcript-area').innerText = '';
+  document.getElementById('interim-area').textContent = '';
+  document.getElementById('word-count').textContent = '0';
+  document.getElementById('char-count').textContent = '0';
+  sessionSeconds = 0;
+  document.getElementById('session-time').textContent = '0:00';
+  setStatus('Text șters.');
+}
+
+function copyText() {
+  const t = document.getElementById('transcript-area').innerText;
+  if (!t) return;
+  navigator.clipboard.writeText(t).then(() => {
+    const btn = document.getElementById('btn-copy');
+    btn.textContent = '✓ Copiat';
+    setTimeout(() => { btn.textContent = 'Copiază'; }, 1500);
+  });
+}
+
+function saveText() {
+  const t = document.getElementById('transcript-area').innerText.trim();
+  if (!t) return;
+  const blob = new Blob([t], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'dictare-' + new Date().toISOString().slice(0, 10) + '.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── AI Refinement (necesită internet) ─────────────────
+async function refineText(instruction) {
+  const text = document.getElementById('transcript-area').innerText.trim();
+  if (!text) { setStatus('Nu există text de rafinat.'); return; }
+  await callAI(instruction, text);
+}
+
+async function refineCustom() {
+  const instr = document.getElementById('custom-instruction').value.trim();
+  if (!instr) return;
+  const text = document.getElementById('transcript-area').innerText.trim();
+  if (!text) { setStatus('Nu există text de rafinat.'); return; }
+  await callAI(instr, text);
+}
+
+async function callAI(instruction, text) {
+  const apiKey = document.getElementById('api-key').value.trim();
+  if (!apiKey) { setStatus('Introdu cheia API Anthropic pentru rafinare AI.'); return; }
+
+  setStatus('Se procesează cu AI...', 'processing');
+  document.querySelectorAll('.btn-ai, .btn-apply').forEach(b => b.disabled = true);
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: `${instruction}. Returnează DOAR textul modificat, fără explicații, fără ghilimele, fără nimic altceva.\n\nText:\n${text}`
+        }]
+      })
+    });
+
+    const data = await resp.json();
+    if (data.error) { setStatus('Eroare API: ' + data.error.message); return; }
+
+    const refined = data.content.map(b => b.text || '').join('').trim();
+    if (refined) {
+      finalText = refined + ' ';
+      document.getElementById('transcript-area').innerText = refined;
+      updateWordCount();
+      setStatus('Text rafinat cu succes.', 'ok');
+    }
+  } catch (e) {
+    setStatus('Eroare de conexiune: ' + e.message);
+  } finally {
+    document.querySelectorAll('.btn-ai, .btn-apply').forEach(b => b.disabled = false);
+  }
+}
+</script>
+</body>
+</html>
