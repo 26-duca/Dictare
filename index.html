@@ -481,18 +481,16 @@ function setStatus(msg, type) {
 }
 
 // ── Speech Recognition ─────────────────────────────────
-function initRecognition() {
+function startRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) {
-    setStatus('Browser incompatibil. Folosește Chrome sau Edge.');
-    return null;
-  }
-  const r = new SR();
-  r.continuous = true;
-  r.interimResults = true;
-  r.lang = document.getElementById('lang-select').value;
+  if (!SR) { setStatus('Browser incompatibil. Folosește Chrome.'); return; }
 
-  r.onresult = (e) => {
+  recognition = new SR();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = document.getElementById('lang-select').value;
+
+  recognition.onresult = (e) => {
     let interim = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const t = e.results[i][0].transcript;
@@ -507,17 +505,30 @@ function initRecognition() {
     document.getElementById('interim-area').textContent = interim;
   };
 
-  r.onerror = (e) => {
+  recognition.onerror = (e) => {
     if (e.error === 'not-allowed') {
-      setStatus('Acces microfon refuzat. Permite accesul în setările browserului.');
-      stopListening();
-    } else if (e.error === 'no-speech') {
-      setStatus('Nu am auzit nimic. Continuă să vorbești...', 'listening');
+      setStatus('Acces microfon refuzat.');
+      isListening = false;
+      document.getElementById('btn-mic').classList.remove('active');
+      document.getElementById('mic-label').textContent = 'REC';
+      clearInterval(sessionTimer);
     }
+    // no-speech / network — onend va reporni automat
   };
 
-  r.onend = () => { if (isListening) r.start(); };
-  return r;
+  recognition.onend = () => {
+    if (!isListening) return;
+    // Mic delay inainte de restart — evita bucla rapida care bloca transcrierea
+    setTimeout(() => {
+      if (!isListening) return;
+      try {
+        recognition.start();
+        setStatus('Ascultă... vorbește acum.', 'listening');
+      } catch(e) {}
+    }, 250);
+  };
+
+  recognition.start();
 }
 
 function toggleListening() {
@@ -525,10 +536,8 @@ function toggleListening() {
 }
 
 function startListening() {
-  recognition = initRecognition();
-  if (!recognition) return;
-  recognition.start();
   isListening = true;
+  startRecognition();
   document.getElementById('btn-mic').classList.add('active');
   document.getElementById('mic-label').textContent = 'STOP';
   setStatus('Ascultă... vorbește acum.', 'listening');
@@ -541,8 +550,8 @@ function startListening() {
 }
 
 function stopListening() {
-  if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
   isListening = false;
+  if (recognition) { try { recognition.abort(); } catch(e) {} recognition = null; }
   clearInterval(sessionTimer);
   document.getElementById('btn-mic').classList.remove('active');
   document.getElementById('mic-label').textContent = 'REC';
@@ -551,23 +560,47 @@ function stopListening() {
 }
 
 function updateLang() {
-  if (isListening) { stopListening(); startListening(); }
+  if (isListening) { stopListening(); setTimeout(startListening, 300); }
 }
 
 // ── Text utilities ─────────────────────────────────────
+let alertAt100Shown = false;
+
 function updateWordCount() {
   const t = document.getElementById('transcript-area').innerText.trim();
   document.getElementById('word-count').textContent = t ? t.split(/\s+/).length : 0;
-  // caractere inclusiv spații (pauze între cuvinte)
-  document.getElementById('char-count').textContent = t.length;
+  const len = t.length;
+  document.getElementById('char-count').textContent = len;
+
+  // Alertă o singură dată când se atinge 100 caractere
+  if (len >= 100 && !alertAt100Shown) {
+    alertAt100Shown = true;
+    const charEl = document.getElementById('char-count');
+    charEl.style.color = 'var(--accent)';
+    charEl.style.transition = 'color 0.3s';
+    setStatus('⚠ 100 caractere atinse!', 'ok');
+    // Flash vizual pe contor
+    charEl.animate([
+      { transform: 'scale(1.4)', color: '#c8f060' },
+      { transform: 'scale(1)',   color: '#c8f060' }
+    ], { duration: 500, easing: 'ease-out' });
+  }
+
+  // Resetează culoarea dacă se șterge sub 100
+  if (len < 100 && alertAt100Shown) {
+    alertAt100Shown = false;
+    document.getElementById('char-count').style.color = '';
+  }
 }
 
 function clearText() {
   finalText = '';
+  alertAt100Shown = false;
   document.getElementById('transcript-area').innerText = '';
   document.getElementById('interim-area').textContent = '';
   document.getElementById('word-count').textContent = '0';
   document.getElementById('char-count').textContent = '0';
+  document.getElementById('char-count').style.color = '';
   sessionSeconds = 0;
   document.getElementById('session-time').textContent = '0:00';
   setStatus('Text șters.');
